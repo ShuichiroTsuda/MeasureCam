@@ -2,15 +2,18 @@ import Expo, { AR } from 'expo';
 import ExpoTHREE, { THREE } from 'expo-three';
 import * as ThreeAR from 'expo-three-ar';
 import React from 'react';
-import { Dimensions, LayoutAnimation, StyleSheet, View } from 'react-native';
-import { State, TapGestureHandler } from 'react-native-gesture-handler';
+import { Dimensions, LayoutAnimation, StyleSheet, View, Button, Text } from 'react-native';
+import { State, TapGestureHandler, TouchableWithoutFeedback } from 'react-native-gesture-handler';
 import { View as GraphicsView } from 'expo-graphics';
+import SizeText from './SizeText';
+
+const { width, height } = Dimensions.get('window');
 
 export default class Measure extends React.Component {
     state = {
         distance: 0,
     }
-    magneticObject = new MagneticObject();
+    magneticObject = new ThreeAR.MagneticObject();
 
     async componentWillMount() {
         AR.onDidFailWithError(({ error }) => {
@@ -28,13 +31,25 @@ export default class Measure extends React.Component {
         });
     }
 
+    measure = async => {
+        const { hitTest } = await AR.performHitTest(
+            {
+                x: 0.5,
+                y: 0.5,
+            },
+            AR.HitTestResultTypes.HorizontalPlane
+        );
+    }
+
     onTap = async event => {
-        if (event.nativeEvent.state !== this.state.ACTIVE) {
+        if (event.nativeEvent.state !== State.ACTIVE) {
+            console.log('not active');
             return;
         }
 
         if (this.endNode) {
             //reset
+            console.log('reset');
             this.scene.remove(this.startNode);
             this.startNode = null;
             this.scene.remove(this.endNode);
@@ -57,7 +72,7 @@ export default class Measure extends React.Component {
         if (hitTest.length > 0) {
             const result = hitTest[0];
 
-            let hitPosision = threeAR.positionFromTransform(
+            let hitPosision = ThreeAR.positionFromTransform(
                 ThreeAR.convertTransformArray(result.worldTransform)
             );
 
@@ -67,6 +82,7 @@ export default class Measure extends React.Component {
             const node = new THREE.Mesh(geometry, material);
             node.position.set(hitPosision.x, hitPosision.y, hitPosision.z);
             this.scene.add(node);
+            console.log('len>0');
 
             if (this.startNode) {
                 this.endNode = node;
@@ -85,6 +101,7 @@ export default class Measure extends React.Component {
             const node = new THREE.Mesh(geometry, material);
             node.position.set(translation.x, translation.y, translation.z);
             this.scene.add(node);
+            console.log('ko')
 
             if (this.startNode) {
                 this.endNode = node;
@@ -103,7 +120,7 @@ export default class Measure extends React.Component {
         const config = AR.TrackingConfigurations.World;
 
         LayoutAnimation.easeInEaseOut();
-
+/*
         return(
             <View style={StyleSheet.container}>
                 <TapGestureHandler onHandlerStateChange={this.onTap}>
@@ -114,36 +131,71 @@ export default class Measure extends React.Component {
                             onRender={this.onRender}
                             onResize={this.onResize}
                             arTrackingConfiguration={config}
-                            isArEnabled //
+                            isArEnabled={true}
+                            isArRunningStateEnabled
+                            isArCameraStateEnabled
                         />
+                        {console.log('reach glview')}
                     </View>
                 </TapGestureHandler>
                 <View style={styles.footer}>
-                    <Sizetext>
-                        {distance}
-                    </Sizetext>
+                    <SizeText>
+                        distance: {distance}
+                        {console.log('reach distance')}
+                    </SizeText>
                 </View>
             </View>
         );
+*/
+            return(
+                <View style={styles.container}>          
+                        <GraphicsView
+                        style={styles.container}
+                        onContextCreate={this.onContextCreate}
+                        onRender={this.onRender}
+                        onResize={this.onResize}
+                        arTrackingConfiguration={config}
+                        isArEnabled={true}
+                        isArRunningStateEnabled
+                        isArCameraStateEnabled
+                        />
+                    <TapGestureHandler onHandlerStateChange={this.onTap}> 
+                        <View style={styles.footer}>
+                            <SizeText>
+                                distance: {distance}
+                                {console.log('reach distance')}
+                            </SizeText>
+                        </View>
+                    </TapGestureHandler>  
+                </View>
+            );
     }
 
     onContextCreate = async ({gl, scale, width, height}) => {
         AR.setPlaneDetection(AR.PlaneDetectionTypes.Horizontal);
 
-        this.renderer = ExpoTHREE.renderer({ gl });
+        this.renderer = new ExpoTHREE.Renderer({
+            gl,
+            scale,
+            width,
+            height,
+        });
         this.renderer.setPixelRatio(scale);
         this.renderer.setSize(width, height);
         this.renderer.setClearColor(0xffffff, 1.0);
 
         this.scene = new THREE.Scene();
-        this.backgroud = ThreeAR.createARBackgroundTexture(this.renderer);
+        //this.scene.backgroud = ThreeAR.createARBackgroundTexture(this.renderer);
+        this.scene.background = new ThreeAR.BackgroundTexture(this.renderer);
 
-        this.camera = ThreeAR.createARCamera(width, height, 0.01, 1000);
+        //this.camera = ThreeAR.createARCamera(width, height, 0.01, 1000);
+        this.camera = new ThreeAR.Camera(width, height, 0.01, 1000);
 
         this.setupLine();
 
         this.magneticObject.add(new THREE.GridHelper(0.1, 5, 0xff0000, 0x0000ff));
         this.scene.add(this.magneticObject);
+        console.log('onContextCreate');
     };
 
     setupLine = () => {
@@ -181,6 +233,7 @@ export default class Measure extends React.Component {
         }
 
         const size = this.startNode.position.distanceTo(this.magneticObject.position);
+        console.log('size' + size);
         const lessPreciseSize = Math.round(size * 10) / 10;
         this.setState({ distance: lessPreciseSize });
 
@@ -188,10 +241,14 @@ export default class Measure extends React.Component {
     }
 
     onResize = ({ x, y, scale, width, height }) => {
+        if (!this.renderer) {
+            return;
+        }
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setPixelRatio(scale);
         this.renderer.setSize(width, height);
+        console.log('onResize');
     };
 
     onRender = () => {
@@ -203,7 +260,7 @@ export default class Measure extends React.Component {
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    footer: {
+/*    footer: {
         position: 'absolute',
         bottom: 12,
         left: 12,
@@ -211,4 +268,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         flexDirection: 'row',
     },
+*/
+    footer: {
+        flex: 1,
+    }
 })
